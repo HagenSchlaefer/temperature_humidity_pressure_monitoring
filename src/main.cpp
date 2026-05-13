@@ -46,11 +46,11 @@ typedef struct {
 } DerivedDiff;
 
 bool shouldReadSensor(unsigned long interval) {
-  static unsigned long lastRead = 0;
+  static unsigned long lastSensorRead = 0;
   
   unsigned long now = millis();
-  if (now - lastRead >= interval) {
-    lastRead = now;
+  if (now - lastSensorRead >= interval) {
+    lastSensorRead = now;
     return true;
   }
   return false;
@@ -58,7 +58,6 @@ bool shouldReadSensor(unsigned long interval) {
 
 //  read Input with 1Hz Timing
 void readInput(InputState* state) {
-  static unsigned long lastSensorRead = 0;  // HIER als static!
   const unsigned long DHT_INTERVAL = 1000;
   
   // read button 
