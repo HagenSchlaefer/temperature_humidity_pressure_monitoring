@@ -1,19 +1,20 @@
+/* filename: dht_sensor.h */
 #ifndef DHT_SENSOR_H
 #define DHT_SENSOR_H
 
 typedef enum {
   TEMP_UNKNOWN = -1,
-  TEMP_COLD = 0,     // < 18°C
-  TEMP_NORMAL = 1,   // 18-25°C
-  TEMP_WARM = 2,     // 25-30°C
-  TEMP_HOT = 3       // > 30°C
+  TEMP_COLD = 0,     
+  TEMP_NORMAL = 1,   
+  TEMP_WARM = 2,     
+  TEMP_HOT = 3       
 } TempLevel;
 
 typedef enum {
   HUMIDITY_UNKNOWN = -1,
-  HUMIDITY_LOW = 0,     // < 40%
-  HUMIDITY_NORMAL = 1,  // 40-60%
-  HUMIDITY_HIGH = 2     // > 60%
+  HUMIDITY_LOW = 0,     
+  HUMIDITY_NORMAL = 1,  
+  HUMIDITY_HIGH = 2     
 } HumidityLevel;
 
 // Function prototypes

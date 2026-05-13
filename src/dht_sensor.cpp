@@ -1,3 +1,4 @@
+/* filename: dht_sensor.cpp */
 #include "dht_sensor.h"
 
 TempLevel getTempLevel(float temperature, float coldThreshold, float normalThreshold, float warmThreshold, float minValidTemp, float maxValidTemp) {

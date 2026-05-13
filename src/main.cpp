@@ -1,4 +1,4 @@
-    
+/* filename: main.cpp */    
 #include <Arduino.h>
 #include <DHT.h>
 #include "dht_sensor.h"
@@ -6,7 +6,7 @@
 // Pin definitions
 typedef enum {
   DHT_PIN = 10,
-  BUTTON_PIN = 3,
+  BUTTON_PIN = 2,
   TEMP_LED_PIN = 13,
   HUMIDITY_LED_PIN = 12,
   ERROR_LED_PIN = 11
@@ -17,72 +17,70 @@ typedef enum {
 DHT dht(DHT_PIN, DHT_TYPE);
 
 // Structures
+// === PHYSISCHE INPUTS (only raw data) ===
 typedef struct {
-  float temperature;
-  float humidity;
-  bool sensorValid;
-  int buttonValue;
-  unsigned long lastSensorRead;  // Timing für 1Hz Sampling
+  float temperature;      // Rohdaten vom DHT11
+  float humidity;         // Rohdaten vom DHT11
+  int buttonValue;        // Rohdaten vom Button
 } InputState;
 
+// === INPUT CHANGES ===
 typedef struct {
   bool temperatureChanged;
   bool humidityChanged;
   bool buttonChanged;
-  bool sensorValidChanged;
 } InputDiff;
 
+// === DERIVED STATES (with validation) ===
 typedef struct {
   TempLevel tempLevel;
   HumidityLevel humidityLevel;
-  bool sensorError;
+  bool sensorError;       // sensor error flag
 } DerivedState;
 
+// === DERIVED CHANGES ===
 typedef struct {
   bool tempLevelChanged;
   bool humidityLevelChanged;
   bool sensorErrorChanged;
 } DerivedDiff;
 
-// **SCHLÜSSEL-FUNKTION: Smart readInput mit 1Hz Timing**
-void readInput(InputState* state) {
-  const unsigned long DHT_INTERVAL = 1000; // 1Hz = 1000ms
+bool shouldReadSensor(unsigned long interval) {
+  static unsigned long lastRead = 0;
   
-  // Button immer lesen (schnell)
+  unsigned long now = millis();
+  if (now - lastRead >= interval) {
+    lastRead = now;
+    return true;
+  }
+  return false;
+}
+
+//  read Input with 1Hz Timing
+void readInput(InputState* state) {
+  static unsigned long lastSensorRead = 0;  // HIER als static!
+  const unsigned long DHT_INTERVAL = 1000;
+  
+  // read button 
   state->buttonValue = digitalRead(BUTTON_PIN);
   
-  // DHT11 nur alle 1000ms lesen
-  unsigned long currentTime = millis();
-  if (currentTime - state->lastSensorRead >= DHT_INTERVAL) {
-    
-    float newTemp = dht.readTemperature();
-    float newHumidity = dht.readHumidity();
-    
-    if (isnan(newTemp) || isnan(newHumidity)) {
-      state->sensorValid = false;
-      // Behalte letzte gültige Werte bei
-    } else {
-      state->temperature = newTemp;
-      state->humidity = newHumidity;
-      state->sensorValid = true;
-    }
-    
-    state->lastSensorRead = currentTime;
+  // read DHT11 every DHT_INTERVAL milliseconds
+  if (shouldReadSensor(DHT_INTERVAL)) {
+    state->temperature = dht.readTemperature();
+    state->humidity = dht.readHumidity();
   }
-  // Wenn noch nicht Zeit für neuen Read: behalte alte Werte
 }
 
 InputDiff diffInput(const InputState* current, const InputState* last) {
   InputDiff diff = {0};
   
-  // Temperatur-Änderung mit Toleranz (0.5°C)
+  // temperature change with tolerance (0.5°C)
   diff.temperatureChanged = abs(current->temperature - last->temperature) >= 0.5;
   
-  // Luftfeuchtigkeit-Änderung mit Toleranz (2%)
+  // humidity change with tolerance (2%)
   diff.humidityChanged = abs(current->humidity - last->humidity) >= 2.0;
   
   diff.buttonChanged = current->buttonValue != last->buttonValue;
-  diff.sensorValidChanged = current->sensorValid != last->sensorValid;
   
   return diff;
 }
@@ -98,7 +96,7 @@ DerivedDiff diffDerived(const DerivedState* current, const DerivedState* last) {
 }
 
 void handleSensorTransition(const DerivedState* current, const DerivedState* last) {
-  // LED-Steuerung basierend auf Zustandsänderungen
+  // LED-control based on derived state
   
   if (current->sensorError) {
     digitalWrite(ERROR_LED_PIN, HIGH);
@@ -109,33 +107,35 @@ void handleSensorTransition(const DerivedState* current, const DerivedState* las
     digitalWrite(ERROR_LED_PIN, LOW);
   }
   
-  // Temperatur LED
+  // temperatur LED
   digitalWrite(TEMP_LED_PIN, (current->tempLevel == TEMP_HOT) ? HIGH : LOW);
   
-  // Luftfeuchtigkeit LED
+  // humaidity LED
   digitalWrite(HUMIDITY_LED_PIN, (current->humidityLevel == HUMIDITY_HIGH) ? HIGH : LOW);
 }
 
 void setup() {
-  // Pins konfigurieren
+  // pin setup
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(TEMP_LED_PIN, OUTPUT);
   pinMode(HUMIDITY_LED_PIN, OUTPUT);
   pinMode(ERROR_LED_PIN, OUTPUT);
   
-  // LEDs initial ausschalten
+  // led initial state
   digitalWrite(TEMP_LED_PIN, LOW);
   digitalWrite(HUMIDITY_LED_PIN, LOW);
   digitalWrite(ERROR_LED_PIN, LOW);
   
-  // DHT11 initialisieren
+  // DHT11 init
   dht.begin();
   
+  // Serial init
   Serial.begin(9600);
   Serial.println("DHT11 Monitoring gestartet...");
 }
 
 void loop() {
+  //constants for thresholds and valid ranges
   const float TEMP_COLD_THRESHOLD = 18.0;
   const float TEMP_NORMAL_THRESHOLD = 25.0;
   const float TEMP_WARM_THRESHOLD = 30.0;
@@ -146,45 +146,51 @@ void loop() {
   const float HUMIDITY_MIN_VALID = 20.0;
   const float HUMIDITY_MAX_VALID = 90.0;
 
-  static InputState currentInputState = {0};
-  static InputState lastInputState = {0};
-  static DerivedState currentDerivedState = {0};
-  static DerivedState lastDerivedState = {0};
+  static InputState currentInputState, lastInputState;
+  static DerivedState currentDerivedState, lastDerivedState;
   static bool derivedInitialized = false;
   
-  // **Inputs lesen (mit intelligentem DHT-Timing)**
+  // read the current input values
   readInput(&currentInputState);
   
-  // Input-Änderungen erkennen
+  // detect input changes
   InputDiff inputDiff = diffInput(&currentInputState, &lastInputState);
   
-  // Button-Handling
+  // button-handling
   if (inputDiff.buttonChanged && currentInputState.buttonValue == LOW) {
     Serial.println("Reset gedrückt!");
     derivedInitialized = false;
     delay(100);
   }
   
-  // **Derived State berechnen**
+  // initialization of derived state on first run or after reset
   if (!derivedInitialized) {
     lastDerivedState.tempLevel = TEMP_UNKNOWN;
     lastDerivedState.humidityLevel = HUMIDITY_UNKNOWN;
     derivedInitialized = true;
   }
+
+  // Derive states with validation
+  bool currentSensorValid = !isnan(currentInputState.temperature) && !isnan(currentInputState.humidity);
+  if (currentSensorValid) {
+    currentDerivedState.tempLevel = getTempLevel(currentInputState.temperature, TEMP_COLD_THRESHOLD, TEMP_NORMAL_THRESHOLD, TEMP_WARM_THRESHOLD, TEMP_MIN_VALID, TEMP_MAX_VALID);
+    currentDerivedState.humidityLevel = getHumidityLevel(currentInputState.humidity, HUMIDITY_LOW_THRESHOLD, HUMIDITY_NORMAL_THRESHOLD, HUMIDITY_MIN_VALID, HUMIDITY_MAX_VALID);
+    currentDerivedState.sensorError = false;
+  } else {
+    currentDerivedState.tempLevel = TEMP_UNKNOWN;
+    currentDerivedState.humidityLevel = HUMIDITY_UNKNOWN;
+    currentDerivedState.sensorError = true;
+  }
   
-  currentDerivedState.tempLevel = getTempLevel(currentInputState.temperature, TEMP_COLD_THRESHOLD, TEMP_NORMAL_THRESHOLD, TEMP_WARM_THRESHOLD, TEMP_MIN_VALID, TEMP_MAX_VALID);
-  currentDerivedState.humidityLevel = getHumidityLevel(currentInputState.humidity, HUMIDITY_LOW_THRESHOLD, HUMIDITY_NORMAL_THRESHOLD, HUMIDITY_MIN_VALID, HUMIDITY_MAX_VALID);
-  currentDerivedState.sensorError = !currentInputState.sensorValid;
-  
-  // Derived-Änderungen erkennen
+  // detect derived state changes
   DerivedDiff derivedDiff = diffDerived(&currentDerivedState, &lastDerivedState);
   
-  // **NUR bei Änderungen ausgeben und LEDs steuern**
+  // only handle transitions if there are changes in derived state
   if (derivedDiff.tempLevelChanged || derivedDiff.humidityLevelChanged || derivedDiff.sensorErrorChanged) {
     
     handleSensorTransition(&currentDerivedState, &lastDerivedState);
     
-    // **Ausgabe nur bei Änderungen**
+    // Serial output
     Serial.print("Temp: ");
     Serial.print(currentInputState.temperature);
     Serial.print("°C (Level: ");
@@ -196,10 +202,10 @@ void loop() {
     Serial.println(")");
   }
   
-  // States für nächste Iteration speichern
+  // save current states for next loop iteration
   lastDerivedState = currentDerivedState;
   lastInputState = currentInputState;
   
-  // Kleine Pause für Loop
+  // small delay to avoid overwhelming the serial output and allow for sensor stabilization
   delay(50);
 }
